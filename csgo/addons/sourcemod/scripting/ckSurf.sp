@@ -228,6 +228,9 @@ int g_iCustomTitleCount;
 ///////////////////////
 //// VIP Variables ////
 ///////////////////////
+bool g_bServerVipCommand;
+ConVar g_hServerVipCommand;
+
 bool g_bTrailOn[MAXPLAYERS + 1];
 bool g_bTrailApplied[MAXPLAYERS + 1];
 bool g_bClientStopped[MAXPLAYERS + 1];
@@ -237,7 +240,7 @@ float g_fClientLastMovement[MAXPLAYERS + 1];
 
 int g_AutoVIPFlag;
 bool g_bAutoVIPFlag;
-Handle g_hAutoVIPFlag = null;
+ConVar g_hAutoVIPFlag = null;
 
 // Vote Extend
 char g_szUsedVoteExtend[MAXPLAYERS+1][32];
@@ -452,6 +455,7 @@ bool g_bCommandToEnd;
 int g_failedTransactions[7];
 
 bool g_bSettingsLoaded[MAXPLAYERS + 1];
+bool g_bLoadingSettings[MAXPLAYERS + 1];
 bool g_bServerDataLoaded;
 float g_fErrorMessage[MAXPLAYERS + 1];
 
@@ -1186,7 +1190,7 @@ public void OnClientPutInServer(int client)
 	if (g_bTierFound[0])
 		AnnounceTimer[client] = CreateTimer(20.0, AnnounceMap, client, TIMER_FLAG_NO_MAPCHANGE);
 	
-	if (!g_bRenaming && !g_bInTransactionChain && g_bServerDataLoaded && !g_bSettingsLoaded[client])
+	if (!g_bRenaming && !g_bInTransactionChain && g_bServerDataLoaded && !g_bSettingsLoaded[client] && !g_bLoadingSettings[client])
 	{
 		/**
 			Start loading client settings
@@ -1199,6 +1203,7 @@ public void OnClientPutInServer(int client)
 			7. Load client titles (db_viewPersonalFlags)
 			8. Load client checkpoints (db_viewCheckpoints)
 		*/
+		g_bLoadingSettings[client] = true;
 		db_viewPersonalRecords(client, g_szSteamID[client], g_szMapName);
 	}
 }
@@ -1863,6 +1868,9 @@ public void OnSettingChanged(Handle convar, const char[] oldValue, const char[] 
 	else if (convar == g_hDoubleRestartCommand) {
 		g_bDoubleRestartCommand = view_as<bool>(StringToInt(newValue));
 	}
+	else if (convar == g_hServerVipCommand) {
+		g_bServerVipCommand = view_as<bool>(StringToInt(newValue));
+	}
 	
 	if (g_hZoneTimer != INVALID_HANDLE)
 	{
@@ -1900,6 +1908,16 @@ public int Native_EmulateStopButtonPress(Handle plugin, int numParams)
 	CL_OnEndTimerPress(GetNativeCell(1));
 }
 
+public int Native_ClientIsVIP(Handle plugin, int numParams)
+{
+	return view_as<bool>(g_bflagTitles[GetNativeCell(1)][0]);
+}
+
+public int Native_GetServerRank(Handle plugin, int numParams)
+{
+	return g_PlayerRank[GetNativeCell(1)];
+}
+
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
 	RegPluginLibrary("ckSurf");
@@ -1908,6 +1926,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("ckSurf_EmulateStartButtonPress", Native_EmulateStartButtonPress);
 	CreateNative("ckSurf_EmulateStopButtonPress", Native_EmulateStopButtonPress);
 	CreateNative("ckSurf_GetCurrentTime", Native_GetCurrentTime);
+	CreateNative("ckSurf_ClientIsVIP", Native_ClientIsVIP);
+	CreateNative("ckSurf_GetServerRank", Native_GetServerRank);
 	
 	MarkNativeAsOptional("HGR_IsHooking");
 	MarkNativeAsOptional("HGR_IsGrabbing");
@@ -2282,6 +2302,10 @@ public void OnPluginStart()
 		g_ZoneMenuFlag = FlagToBit(bufferFlag);
 		
 	HookConVarChange(g_hZoneMenuFlag, OnSettingChanged);
+	
+	g_hServerVipCommand = CreateConVar("ck_enable_vip", "1", "(0 / 1) Enables the !vip command. Requires a server restart.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	g_bServerVipCommand = GetConVarBool(g_hServerVipCommand);
+	HookConVarChange(g_hServerVipCommand, OnSettingChanged);
 
 	db_setupDatabase();
 	
@@ -2344,9 +2368,13 @@ public void OnPluginStart()
 	// Titles
 	RegConsoleCmd("sm_title", Command_SetTitle, "[ckSurf] Displays player's titles");
 	RegConsoleCmd("sm_titles", Command_SetTitle, "[ckSurf] Displays player's titles");
-	RegConsoleCmd("sm_vip", Command_Vip, "[ckSurf] VIP's commands and effects.");
-	RegConsoleCmd("sm_effects", Command_Vip, "[ckSurf] VIP's commands and effects.");
-	RegConsoleCmd("sm_effect", Command_Vip, "[ckSurf] VIP's commands and effects.");
+	
+	if(g_bServerVipCommand)
+	{
+		RegConsoleCmd("sm_vip", Command_Vip, "[ckSurf] VIP's commands and effects.");
+		RegConsoleCmd("sm_effects", Command_Vip, "[ckSurf] VIP's commands and effects.");
+		RegConsoleCmd("sm_effect", Command_Vip, "[ckSurf] VIP's commands and effects.");
+	}
 	
 	// MISC
 	RegConsoleCmd("sm_tier", Command_Tier, "[ckSurf] Prints information on the current map");
@@ -2519,4 +2547,4 @@ public void OnPluginStart()
 	Format(szLIGHTBLUE, 12, "%c", LIGHTBLUE);
 	Format(szPINK, 12, "%c", PINK);
 	Format(szLIGHTRED, 12, "%c", LIGHTRED);
-} 
+}
